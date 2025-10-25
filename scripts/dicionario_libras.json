@@ -1,0 +1,10 @@
+{
+  "oi": ["mao_aberta_para_frente", "aceno_lateral", "sorriso_leve"],
+  "ola": ["mao_aberta_para_frente", "aceno_lateral", "sorriso_leve"],
+  "obrigado": ["mao_no_queixo", "move_para_frente", "olhar_grato"],
+  "agua": ["dedos_unidos_em_bico", "toca_boca", "move_para_baixo_duas_vezes"],
+  "comer": ["mao_fechada_polegar_na_boca", "movimento_mastigar"],
+  "sim": ["mao_fechada", "polegar_para_cima", "balancar_cabeca_sim"],
+  "nao": ["mao_aberta", "aceno_lateral_negativo", "balancar_cabeca_nao"],
+  "ajuda": ["mao_esquerda_aberta", "mao_direita_fecha_e_levanta"]
+}
