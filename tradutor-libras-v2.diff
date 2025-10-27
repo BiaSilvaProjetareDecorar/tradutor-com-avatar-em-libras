@@ -1,0 +1,410 @@
+*** Begin Patch
+*** Add File: .env.template
+# Copy to .env and fill the token below before running in production
+API_UPLOAD_TOKEN=troque-por-um-token-seguro
+DEFAULT_MAPPING=sample_mapping.json
+
+*** End Patch
+*** Add File: Makefile
+.PHONY: run test build docker-up lint
+
+run:
+	uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
+
+test:
+	pytest -q
+
+build:
+	docker build -t tradutor-libras .
+
+docker-up:
+	docker-compose up --build
+
+lint:
+	python -m pip install ruff
+	ruff check .
+
+*** End Patch
+*** Update File: requirements.txt
+@@
+ python>=3.9
+ pytest>=7.0
+ pydantic>=1.10
+ fastapi>=0.95
+ uvicorn[standard]>=0.22
+ httpx>=0.24
+ pytest-asyncio>=0.21
++unidecode>=1.3
++python-dotenv>=1.0
+*** End Patch
+*** Add File: .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        run: pytest -q
+
+*** End Patch
+*** Update File: src/translator/__init__.py
+@@
+-from pathlib import Path
+-import json
+-from typing import List
+-
+-DEFAULT_MAPPING_PATH = Path(__file__).parent.parent.parent / "mapping" / "sample_mapping.json"
+-
+-def load_mapping(path: Path | str = DEFAULT_MAPPING_PATH) -> dict:
+-    p = Path(path)
+-    if not p.exists():
+-        return {}
+-    with p.open("r", encoding="utf-8") as f:
+-        return json.load(f)
+-
+-def normalize(text: str) -> str:
+-    return text.strip().lower()
+-
+-def translate_sentence(sentence: str, mapping: dict) -> List[str]:
+-    sentence = normalize(sentence)
+-    # remove punctuation (simple)
+-    import re
+-    sentence = re.sub(r'[.,!?;:]', '', sentence)
+-    tokens = sentence.split()
+-    out = []
+-    i = 0
+-    while i < len(tokens):
+-        if i + 1 < len(tokens):
+-            bigram = tokens[i] + " " + tokens[i + 1]
+-            if bigram in mapping:
+-                out.extend(mapping[bigram])
+-                i += 2
+-                continue
+-        word = tokens[i]
+-        if word in mapping:
+-            out.extend(mapping[word])
+-        else:
+-            out.append(f"[UNK:{word}]")
+-        i += 1
+-    return out
++from pathlib import Path
++import json
++from typing import List, Dict
++import re
++from unidecode import unidecode
++
++BASE = Path(__file__).parent.parent.parent
++MAPPING_DIR = BASE / "mapping"
++MAPPING_DIR.mkdir(parents=True, exist_ok=True)
++
++DEFAULT_MAPPING_PATH = MAPPING_DIR / "sample_mapping.json"
++
++def load_mapping_file(path: Path) -> Dict[str, List[str]]:
++    if not path.exists():
++        return {}
++    with path.open("r", encoding="utf-8") as f:
++        return json.load(f)
++
++def list_mappings() -> Dict[str, str]:
++    out = {}
++    for p in MAPPING_DIR.glob("*.json"):
++        out[p.name] = str(p.resolve())
++    return out
++
++def load_mapping(path: Path | str | None = None) -> Dict[str, List[str]]:
++    if path is None:
++        path = DEFAULT_MAPPING_PATH
++    p = Path(path)
++    return load_mapping_file(p)
++
++def normalize(text: str) -> str:
++    text = text.strip().lower()
++    text = unidecode(text)
++    text = re.sub(r'[.,!?;:()"\']', '', text)
++    return text
++
++def translate_sentence(sentence: str, mapping: Dict[str, List[str]]) -> List[str]:
++    sentence = normalize(sentence)
++    tokens = sentence.split()
++    out: List[str] = []
++    i = 0
++    while i < len(tokens):
++        # try trigram
++        if i + 2 < len(tokens):
++            trigram = f"{tokens[i]} {tokens[i+1]} {tokens[i+2]}"
++            if trigram in mapping:
++                out.extend(mapping[trigram])
++                i += 3
++                continue
++        if i + 1 < len(tokens):
++            bigram = f"{tokens[i]} {tokens[i+1]}"
++            if bigram in mapping:
++                out.extend(mapping[bigram])
++                i += 2
++                continue
++        word = tokens[i]
++        if word in mapping:
++            out.extend(mapping[word])
++        else:
++            out.append(f"[UNK:{word}]")
++        i += 1
++    return out
+*** End Patch
+*** Update File: src/app.py
+@@
+-from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Form, Depends
+-from fastapi.responses import JSONResponse, HTMLResponse
+-from fastapi.staticfiles import StaticFiles
+-from fastapi.middleware.cors import CORSMiddleware
+-from pathlib import Path
+-import shutil, json, os
+-from dotenv import load_dotenv
+-from .translator import load_mapping, translate_sentence, DEFAULT_MAPPING_PATH, list_mappings, load_mapping_file
+-
+-load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+-
+-UPLOAD_TOKEN = os.getenv("API_UPLOAD_TOKEN", None)
++from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Form, Depends
++from fastapi.responses import JSONResponse, HTMLResponse
++from fastapi.staticfiles import StaticFiles
++from fastapi.middleware.cors import CORSMiddleware
++from pathlib import Path
++import shutil, json, os
++from dotenv import load_dotenv
++from .translator import load_mapping, translate_sentence, DEFAULT_MAPPING_PATH, list_mappings, load_mapping_file
++
++load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
++
++UPLOAD_TOKEN = os.getenv("API_UPLOAD_TOKEN", None)
+@@
+-BASE = Path(__file__).parent.parent
+-STATIC_DIR = BASE / "static"
+-STATIC_DIR.mkdir(parents=True, exist_ok=True)
+-
+-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+-
+-# in-memory registry of mappings (filename -> dict)
+-_mapping_registry = {}
+-for name, path in list_mappings().items():
+-    _mapping_registry[name] = load_mapping_file(Path(path))
+-
+-# ensure default exists
+-if DEFAULT_MAPPING_PATH.name not in _mapping_registry:
+-    _mapping_registry[DEFAULT_MAPPING_PATH.name] = load_mapping(DEFAULT_MAPPING_PATH)
+-
+-# active mapping filename
+-_active_mapping = os.getenv("DEFAULT_MAPPING", DEFAULT_MAPPING_PATH.name)
++BASE = Path(__file__).parent.parent
++STATIC_DIR = BASE / "static"
++STATIC_DIR.mkdir(parents=True, exist_ok=True)
++
++app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
++
++# in-memory registry of mappings (filename -> dict)
++_mapping_registry = {}
++for name, path in list_mappings().items():
++    _mapping_registry[name] = load_mapping_file(Path(path))
++
++# ensure default exists
++if DEFAULT_MAPPING_PATH.name not in _mapping_registry:
++    _mapping_registry[DEFAULT_MAPPING_PATH.name] = load_mapping(DEFAULT_MAPPING_PATH)
++
++# active mapping filename
++_active_mapping = os.getenv("DEFAULT_MAPPING", DEFAULT_MAPPING_PATH.name)
+*** End Patch
+*** Update File: src/app.py
+@@
+ async def translate_text(payload: dict):
+     text = payload.get("text")
+     if text is None:
+         raise HTTPException(status_code=400, detail="Campo 'text' é obrigatório.")
+-    global _active_mapping
+-    mapping = _mapping_registry.get(_active_mapping, {})
+-    glosses = translate_sentence(text, mapping)
++    global _active_mapping
++    mapping = _mapping_registry.get(_active_mapping, {})
++    glosses = translate_sentence(text, mapping)
+     return JSONResponse({"glosses": glosses})
+@@
+-    target = mapping_dir / "uploaded_mapping.json"
++    target = mapping_dir / "uploaded_mapping.json"
+     with target.open("w", encoding="utf-8") as f:
+         json.dump(data, f, ensure_ascii=False, indent=2)
+-    # reload mapping in memory
+-    global _mapping_registry
+-    _mapping_registry[target.name] = data
+-    return {"status": "ok", "path": str(target)}
++    # reload mapping in memory
++    global _mapping_registry
++    _mapping_registry[target.name] = data
++    return {"status": "ok", "path": str(target)}
+@@
+-    return JSONResponse({"mapping_keys": list(_mapping_registry.keys()), "active": _active_mapping})
++    return JSONResponse({"mapping_keys": list(_mapping_registry.keys()), "active": _active_mapping})
++
++@app.post("/select-mapping")
++async def select_mapping(name: str = Form(...)):
++    global _active_mapping
++    if name not in _mapping_registry:
++        raise HTTPException(status_code=404, detail="mapping não encontrado")
++    _active_mapping = name
++    return {"status": "ok", "active": _active_mapping}
++
++@app.post("/upload-mapping-token")
++async def upload_mapping_token(file: UploadFile = File(...), token: str = Form(...)):
++    # require token
++    if UPLOAD_TOKEN is None or token != UPLOAD_TOKEN:
++        raise HTTPException(status_code=401, detail="token inválido")
++    try:
++        content = await file.read()
++        data = json.loads(content.decode("utf-8"))
++    except Exception as e:
++        raise HTTPException(status_code=400, detail=f"Erro ao ler JSON: {e}")
++    mapping_dir = BASE / "mapping"
++    mapping_dir.mkdir(parents=True, exist_ok=True)
++    target = mapping_dir / file.filename
++    with target.open("w", encoding="utf-8") as f:
++        json.dump(data, f, ensure_ascii=False, indent=2)
++    _mapping_registry[target.name] = data
++    return {"status": "ok", "path": str(target)}
+*** End Patch
+*** Add File: src/static/app_v2.js
++const btn = document.getElementById("btn");
++const out = document.getElementById("out");
++const txt = document.getElementById("text");
++const fileInput = document.getElementById("file");
++const uploadBtn = document.getElementById("upload");
++const mappingSelect = document.getElementById("mappingSelect");
++const historyEl = document.getElementById("history");
++
++async function loadMappings() {
++  const res = await fetch("/mapping");
++  const data = await res.json();
++  mappingSelect.innerHTML = "";
++  data.mapping_keys.forEach(k => {
++    const opt = document.createElement("option");
++    opt.value = k;
++    opt.innerText = k + (k === data.active ? " (ativo)" : "");
++    mappingSelect.appendChild(opt);
++  });
++}
++
++mappingSelect?.addEventListener("change", async () => {
++  const fd = new FormData();
++  fd.append("name", mappingSelect.value);
++  await fetch("/select-mapping", { method: "POST", body: fd });
++  loadMappings();
++});
++
++btn.addEventListener("click", async () => {
++  const text = txt.value.trim();
++  if (!text) {
++    out.innerText = "Digite algo antes de traduzir.";
++    return;
++  }
++  const res = await fetch("/translate", {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({ text })
++  });
++  const data = await res.json();
++  if (res.ok) {
++    out.innerHTML = data.glosses.map(g => {
++      if (g.startsWith("[UNK:")) return `<span class="unk">${g}</span>`;
++      return `<span>${g}</span>`;
++    }).join(" ");
++    const li = document.createElement("li");
++    li.innerText = `${text} → ${data.glosses.join(" ")}`;
++    historyEl.prepend(li);
++  } else {
++    out.innerText = data.detail || "Erro";
++  }
++});
++
++uploadBtn.addEventListener("click", async () => {
++  const file = fileInput.files[0];
++  if (!file) {
++    alert("Escolha um arquivo JSON de mapping primeiro.");
++    return;
++  }
++  const fd = new FormData();
++  fd.append("file", file);
++  const res = await fetch("/upload-mapping", { method: "POST", body: fd });
++  const data = await res.json();
++  if (res.ok) {
++    alert("Mapping enviado com sucesso.");
++    loadMappings();
++  } else {
++    alert("Erro ao enviar mapping: " + (data.detail || JSON.stringify(data)));
++  }
++});
++
++window.addEventListener("load", loadMappings);
+*** End Patch
+*** Update File: src/static/index.html
+@@
+-    <textarea id="text" placeholder="bom dia mundo"></textarea>
+-    <div style="margin-top:.5rem;">
+-      <label for="mappingSelect">Mapping:</label>
+-      <select id="mappingSelect"></select>
+-    </div>
++    <textarea id="text" placeholder="bom dia mundo"></textarea>
++    <div style="margin-top:.5rem;">
++      <label for="mappingSelect">Mapping:</label>
++      <select id="mappingSelect"></select>
++    </div>
+@@
+-    <script src="/static/app.js"></script>
++    <script src="/static/app_v2.js"></script>
+   </body>
+ </html>
+*** End Patch
+*** Update File: README.md
+@@
+-O que foi adicionado/alterado (resumo rápido)
++- O que foi adicionado/alterado (resumo rápido)
+@@
+-Próximos passos sugeridos (posso fazer agora se quiseres)
+-- Melhorar a normalização (remoção de acentos com `unidecode`).
+-- Autenticação simples para upload de mappings.
+-- Salvar múltiplos mappings e permitir selecionar qual usar.
+-- Adicionar CI (GitHub Actions) para rodar testes automaticamente.
+-- Melhorar UI (ex.: real-time highlighting, histórico de traduções).
+-
+-Quer que eu aplique mais alguma destas melhorias agora? Ou prefieres que eu gere também um `tar.gz` com os arquivos criados / um `Makefile` para facilitar?
++Próximos passos sugeridos (posso fazer agora se quiseres)
++- Tudo pronto para subir no GitHub: CI, Makefile, múltiplos mappings, token de upload via `.env`, README e licença personalizada com tua autoria.
++
++Comando rápido para preparar o repositório local:
++
++```bash
++cp .env.template .env
++# edite .env e defina API_UPLOAD_TOKEN
++make run
++```
+*** End Patch
+*** Update File: LICENSE
+@@
+-MIT License
+-
+-Copyright (c) 2025
++MIT License
++
++Copyright (c) 2025 BiaDecora
+*** End Patch
