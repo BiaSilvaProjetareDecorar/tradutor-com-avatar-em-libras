@@ -1,2 +1,29 @@
-# tradutor-com-avatar-em-libras
-O Intérprete Virtual de Libras usa IA e avatares 3D para traduzir automaticamente fala e vídeos em tempo real para Libras, tornando conteúdos, aulas e reuniões acessíveis a milhões de pessoas surdas. Tecnologia, inclusão e acessibilidade unidas para uma comunicação sem barreiras
+# 🧠 Tradutor com Avatar em Libras (PoC)
+
+Este projeto é uma **prova de conceito** (PoC) para mapeamento de palavras em português para *comandos de sinais* em Libras.  
+Inclui testes automatizados com `pytest` e pipeline de CI/CD com **GitHub Actions**.
+
+## 🚀 Como rodar localmente
+
+```bash
+# Instale as dependências
+pip install pytest
+
+# Execute diretamente
+python teste_mapeamento_completo.py
+
+# Ou via pytest
+pytest -v
+```
+
+## 🧩 Estrutura
+```
+tradutor-com-avatar-em-libras/
+├── teste_mapeamento_completo.py
+├── README.md
+├── .gitignore
+└── .github/workflows/python-tests.yml
+```
+
+## ✅ CI Automático
+A cada push ou pull request, os testes são executados automaticamente no GitHub Actions.
