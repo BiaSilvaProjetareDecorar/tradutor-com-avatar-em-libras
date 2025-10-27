@@ -1,0 +1,227 @@
+diff --git a/requirements.txt b/requirements.txt
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/requirements.txt
+@@
++python>=3.9
++pytest>=7.0
++pydantic>=1.10
+diff --git a/mapping/sample_mapping.json b/mapping/sample_mapping.json
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/mapping/sample_mapping.json
+@@
++{
++  "oi": ["OI_gloss"],
++  "bom dia": ["BOM", "DIA"],
++  "obrigado": ["OBRIGADO"],
++  "tchau": ["TCHAU"]
++}
+diff --git a/src/translator_cli.py b/src/translator_cli.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/src/translator_cli.py
+@@
++#!/usr/bin/env python3
++import json
++from pathlib import Path
++from typing import List
++
++MAPPING_PATH = Path(__file__).parent.parent / "mapping" / "sample_mapping.json"
++
++def load_mapping(path: Path = MAPPING_PATH) -> dict:
++    with open(path, "r", encoding="utf-8") as f:
++        return json.load(f)
++
++def normalize(text: str) -> str:
++    return text.strip().lower()
++
++def translate_sentence(sentence: str, mapping: dict) -> List[str]:
++    sentence = normalize(sentence)
++    tokens = sentence.split()
++    out = []
++    i = 0
++    while i < len(tokens):
++        if i + 1 < len(tokens):
++            bigram = tokens[i] + " " + tokens[i + 1]
++            if bigram in mapping:
++                out.extend(mapping[bigram])
++                i += 2
++                continue
++        word = tokens[i]
++        if word in mapping:
++            out.extend(mapping[word])
++        else:
++            out.append(f"[UNK:{word}]")
++        i += 1
++    return out
++
++if __name__ == "__main__":
++    import argparse
++    parser = argparse.ArgumentParser(description="Tradutor simples PT→gloss (PoC)")
++    parser.add_argument("text", type=str, help="Texto em português para traduzir")
++    parser.add_argument("--mapping", type=Path, default=MAPPING_PATH, help="Caminho para o JSON de mapeamento")
++    args = parser.parse_args()
++    mapping = load_mapping(args.mapping)
++    glosses = translate_sentence(args.text, mapping)
++    print(" ".join(glosses))
+diff --git a/tests/test_translator.py b/tests/test_translator.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/tests/test_translator.py
+@@
++from src.translator_cli import translate_sentence, load_mapping
++from pathlib import Path
++
++def test_translate_basic(tmp_path):
++    mapping = {
++        "oi": ["OI_gloss"],
++        "bom dia": ["BOM", "DIA"],
++        "mundo": ["MUNDO"]
++    }
++    out = translate_sentence("bom dia mundo", mapping)
++    assert out == ["BOM", "DIA", "MUNDO"]
++
++def test_unknown_word():
++    mapping = {"oi": ["OI_gloss"]}
++    out = translate_sentence("ola mundo", mapping)
++    assert any(tok.startswith("[UNK:") for tok in out)
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..a3b2d5f
+--- /dev/null
++++ b/README.md
+@@
++# Tradutor Libras (PoC)
++
++Este é um protótipo simples de tradutor de texto em português para glosas em Libras (representações textuais dos sinais).  
++
++## 🚀 Como funciona
++
++O script `translator_cli.py` lê um arquivo JSON com o mapeamento de palavras ou expressões e converte frases em suas glosas correspondentes.
++
++Exemplo:
++
++```bash
++$ python src/translator_cli.py "bom dia mundo"
++BOM DIA MUNDO
++```
++
++Palavras não mapeadas são substituídas por `[UNK:palavra]`.
++
++## 🧩 Estrutura
++
++```
++.
++├── mapping/
++│   └── sample_mapping.json
++├── src/
++│   └── translator_cli.py
++├── tests/
++│   └── test_translator.py
++├── requirements.txt
++└── README.md
++```
++
++## 🧪 Testes
++
++Execute os testes com:
++
++```bash
++pytest
++```
++
++## 🐳 Executar com Docker
++
++```bash
++docker build -t tradutor-libras .
++docker run --rm tradutor-libras "bom dia mundo"
++```
++
++## 📜 Licença
++
++Distribuído sob a licença MIT. Consulte o arquivo `LICENSE` para mais detalhes.
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..c5d4f3a
+--- /dev/null
++++ b/Dockerfile
+@@
++FROM python:3.10-slim
++
++WORKDIR /app
++
++COPY requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt
++
++COPY . .
++
++ENTRYPOINT ["python", "src/translator_cli.py"]
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+new file mode 100644
+index 0000000..f4e9a2a
+--- /dev/null
++++ b/CONTRIBUTING.md
+@@
++# Guia de Contribuição
++
++Obrigado por contribuir com o **Tradutor Libras** 💙  
++
++## Como contribuir
++
++1. Faça um fork do repositório.  
++2. Crie uma branch para sua modificação:
++   ```bash
++   git checkout -b minha-feature
++   ```
++3. Adicione seus testes e confirme que tudo passa:
++   ```bash
++   pytest
++   ```
++4. Envie um pull request descrevendo suas alterações.
++
++## Padrões de código
++- Use Python 3.9 ou superior.
++- Siga a formatação [PEP 8](https://peps.python.org/pep-0008/).
++- Prefira nomes de funções descritivos.
++
++## Reportando problemas
++Abra uma issue explicando:
++- O comportamento observado
++- O comportamento esperado
++- Passos para reproduzir
++
++## Sugestões
++Ideias são sempre bem-vindas! 😊  
++Abra uma issue com a tag `enhancement`.
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..d7b6c3a
+--- /dev/null
++++ b/LICENSE
+@@
++MIT License
++
++Copyright (c) 2025
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
